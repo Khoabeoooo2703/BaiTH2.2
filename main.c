@@ -1,5 +1,5 @@
 #include "stm32f10x.h"                 
-#include "stdio.h"
+#include <stdio.h>
 
 #define ADDRESS 0x23 //Dia chi BH1750
 #define POWER_ON 0x01 //Lenh bat nguon cho BH1750
@@ -9,11 +9,12 @@
 void I2C_Config(void);
 void USART_Config(void);
 void USART_SendString(char *str);
+void USART_SendNumber(uint16_t num);
 void BH1750_Config(void);
+void Timer_Config(void);
 void Delay_ms(uint32_t time);
 void I2C_Write(uint8_t HW_Addr, uint8_t Sub, uint8_t Data);
 uint16_t I2C_Read(uint8_t HW_Addr, uint8_t Sub);
-void I2C_Read_Buf(uint8_t HW_Addr, uint8_t *p_buf, unsigned int buf_size);
 
 uint32_t ticks;
 
@@ -79,6 +80,12 @@ void USART_SendString(char *str){
 		while(USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET);
 		str++;
 	}
+}
+
+void USART_SendNumber(uint16_t num){
+	char buffer[7]; 
+  sprintf(buffer, "%d", num); 
+  USART_SendString(buffer);  
 }
 
 void I2C_Write(uint8_t HW_Addr, uint8_t Sub, uint8_t Data){
@@ -152,33 +159,6 @@ uint16_t I2C_Read(uint8_t HW_Addr, uint8_t Sub){
 	return data;
 }
 
-void I2C_Read_Buf(uint8_t HW_Addr, uint8_t *p_buf,	unsigned int buf_size){
-	I2C_GenerateSTART(I2C1, ENABLE);
-	while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_MODE_SELECT));
-	I2C_Send7bitAddress(I2C1,	HW_Addr << 1, I2C_Direction_Transmitter);
-	while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED));
-	
-	I2C_GenerateSTART(I2C1, ENABLE);
-	while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_MODE_SELECT));
-	
-	I2C_AcknowledgeConfig(I2C1, ENABLE);
-	//I2C_Send7bitAddress(I2C1, HW_Addr << 1, I2C_Direction_Receiver);
-	uint8_t i;
-	for(i = 0; i < buf_size; i++){
-		if(i == buf_size - 1){
-			I2C_AcknowledgeConfig(I2C1, DISABLE);
-		}
-		while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_BYTE_RECEIVED));
-		p_buf[i] = I2C_ReceiveData(I2C1);
-	}
-	
-	//I2C_AcknowledgeConfig(I2C1, DISABLE);
-	I2C_NACKPositionConfig(I2C1, I2C_NACKPosition_Current);
-	
-	I2C_GenerateSTOP(I2C1, ENABLE);
-	while(I2C_GetFlagStatus(I2C1, I2C_FLAG_BUSY));
-}
-
 void Delay_ms(uint32_t time){
 	while(time){
 		TIM_SetCounter(TIM2, 0);
@@ -187,23 +167,30 @@ void Delay_ms(uint32_t time){
 	}
 }
 
+void Timer_Config(void){
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
+	TIM_TimeBaseInitTypeDef timer;
+	timer.TIM_Period = 65535;
+	timer.TIM_Prescaler = 72 - 1; //f_timer = 1MHz;
+	timer.TIM_CounterMode = TIM_CounterMode_Up;
+	TIM_TimeBaseInit(TIM2, &timer);
+	TIM_Cmd(TIM2, ENABLE);
+}
 
 int main(void){
 	I2C_Config();
 	USART_Config();
 	BH1750_Config();
-	char buff[32];
+	Timer_Config();
+	char tmp[32];
 	float light;
 	uint16_t light_tmp;
-	uint8_t MSB, LSB;
 	
 	while(1){
 		light_tmp = I2C_Read(ADDRESS, 0xFF);
-		MSB = (light_tmp >> 8) & 0xFF;
-		LSB = light_tmp & 0xFF;
-		light = ((MSB << 8) | LSB) / 1.2;
-		sprintf(buff, "Do sang: %.2f Lux\n", light);	
-    USART_SendString(buff);    
+		light = light_tmp / 1.2;
+		sprintf(tmp, "Do sang: %.2f Lux\n", light);	
+    USART_SendString(tmp);    
     Delay_ms(1000);
 	}
 }
